@@ -218,7 +218,15 @@ fs.writeFileSync(ziel, JSON.stringify(workflow, null, 2) + '\n', 'utf8');
 
 // --- Sicherheitsnetz: nichts Geheimes im Export ---------------------------
 const inhalt = fs.readFileSync(ziel, 'utf8');
-const verdacht = [/"credentials"\s*:/i, /sk-[A-Za-z0-9]/, /api[_-]?key\s*[:=]\s*["'][^"']+/i, /GPKTU4d6hXqTYI1Z/];
+// Bewusst nur generische Muster: eine konkrete Credential-ID als Suchmuster
+// einzutragen wuerde sie selbst ins oeffentliche Repo schreiben. Der Block
+// "credentials" deckt den eigentlichen Fall bereits ab.
+const verdacht = [
+  /"credentials"\s*:/i,
+  /sk-[A-Za-z0-9]{10}/,
+  /api[_-]?key\s*[:=]\s*["'][^"']+/i,
+  /\b(ghp|github_pat)_[A-Za-z0-9]/,
+];
 const treffer = verdacht.filter((r) => r.test(inhalt));
 if (treffer.length > 0) {
   console.error('ABBRUCH: Der Export enthaelt moeglicherweise Zugangsdaten:', treffer.map(String));

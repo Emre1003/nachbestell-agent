@@ -52,7 +52,22 @@ node scripts/verify-n8n-parity.js  # prüft Repo-Rechenkern gegen n8n-Lauf
 
 ## Learnings
 
-[Folgt während der Challenge — die 2-3 wichtigsten Dinge beim Bauen, auch Fails.]
+**1. Der Faktencheck war kein Deko-Feature — er hat den einen Ernstfall abgefangen, der tatsächlich eintrat.**
+
+In einem Testlauf fielen plötzlich **alle 25 Begründungen** auf die fest formulierten Ersatzsätze zurück. Ursache war nicht das Sprachmodell, sondern mein eigener Code: Claude hatte den JSON-Schlüssel als `"begründungen"` geschrieben, mit Umlaut — mein Parser suchte nach `begruendungen`. Ergebnis: kein einziger Satz wurde gefunden.
+
+Das Entscheidende daran: **Der Report war trotzdem vollständig korrekt.** Jede Zahl stimmte, jede Entscheidung stand, nur die Formulierungen waren nüchterner. Genau dafür war die Sperre gebaut — für den Fall, dass die Textstufe ausfällt, ohne dass es jemand merkt. Hätte ich dem Modell die Zahlen anvertraut, wäre dieser Lauf still kaputt gewesen. Der Fix war anschließend eine Zeile (Schlüsselnamen normalisieren), aber gefunden habe ich den Fehler nur, weil ein Zähler im Output ihn sichtbar gemacht hat.
+
+**2. Zwei weitere Fehler, die ich beim Lesen des eigenen Outputs gefunden habe — nicht beim Testen.**
+
+- Der Faktencheck ließ „reicht nur noch **7** Tage" durchgehen, obwohl der echte Wert 7,5 war. Die 7 war formal gedeckt, weil sie zufällig einem Parameter entsprach. Allerweltszahlen wie 7 oder 100 global zu erlauben reißt ein Loch in die Prüfung.
+- Umgekehrt ersetzte der Faktencheck einen *korrekten* Satz („keine zuverlässige Prognose möglich"), weil meine Regel stumpf auf das Wort „Prognose" prüfte statt auf eine tatsächlich behauptete Prognose.
+
+Beide Male war die Prüflogik das Problem, nicht das Modell. Und beide Male hätte ein grüner Testlauf nichts verraten — der Workflow lief ja durch.
+
+**3. Das Modell schnitt Zahlen ab, statt zu runden.** 13,8 wurde zu 13, 23,9 zu 23. Der Faktencheck hat das zuverlässig gefangen, aber fünf ersetzte Sätze pro Lauf sind lästig. Eine Zeile im Systemprompt („übernimm Zahlen exakt, runde nicht") hat die Quote von 20/26 auf 26/26 gehoben. Die Sperre repariert Symptome — besser ist, die Ursache abzustellen.
+
+**Bewusste Grenze:** Der Faktencheck prüft, ob eine Zahl in den Daten dieses Artikels **vorkommt** — nicht, ob sie im richtigen **Zusammenhang** steht. Nur für die Reichweite gibt es eine zusätzliche Kontextprüfung, weil sie die Zahl ist, auf der die Entscheidung beruht. Das ist eine Abwägung, kein Versehen: eine vollständige semantische Prüfung wäre selbst wieder fehleranfällig.
 
 ---
 

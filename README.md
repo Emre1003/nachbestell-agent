@@ -1,42 +1,37 @@
-# SKAILE Building Challenge
+# Nachbestell-Agent
 
-> Diese Datei füllst du im Laufe der Challenge aus. Die Platzhalter in eckigen
-> Klammern ersetzt du durch deine Inhalte — dein Claude Code hilft dir dabei
-> (siehe START.md).
+> SKAILE Building Challenge — Projekt von Emre Yildirim (Aigency).
 
 ## Das Problem
 
-[1-2 Sätze: Wessen Problem löst dein Agent? Was kostet das Problem heute an
-Zeit, Geld oder Nerven?]
+Ein Onlineshop-Betreiber sieht seiner Bestandsliste nicht an, welche Artikel gleich leer sind — nachbestellt wird nach Bauchgefühl oder erst, wenn ein Artikel schon ausverkauft ist. Beides kostet Geld: entgangener Umsatz bei Ausverkauf, totes Kapital bei Überbestand. Die Zahlen liegen alle vor, aber niemand rechnet sie wöchentlich pro Artikel durch.
 
 ## Was der Agent macht
 
-[2-3 Sätze: Input rein → was passiert → Ergebnis raus. Einfach erklärt, so
-dass es jemand ohne Technik-Hintergrund versteht.]
+Der Agent bekommt den aktuellen Lagerbestand und die Verkäufe der letzten 60 Tage. Daraus berechnet er pro Artikel die Verkaufsgeschwindigkeit und die verbleibende Reichweite in Tagen und vergleicht sie mit der Lieferzeit. Heraus kommt eine fertige Bestellliste mit konkreter Menge und Begründung pro Artikel, plus eine Liste der Ladenhüter mit dem darin gebundenen Kapital. Der Agent zeigt keine Zahlen an — er trifft eine Entscheidung und begründet sie.
 
 ## Stack
 
-- [ ] Claude Code (Agent / Skills)
-- [ ] n8n
-- [ ] Sonstiges: [was?]
+- [x] Claude Code (Agent / Skills)
+- [x] n8n
+- [ ] Sonstiges: —
 
 ## Setup
 
-[Wie richtet man deinen Agenten ein? Wenn du es richtig gut machen willst:
-Schreib eine INSTALL.md, die an Claude adressiert ist — so wie beim
-Video-Cutter von Sebastian. Das gibt Bonuspunkte bei Doku/Teilbarkeit.]
+Läuft mit Claude Code und n8n. Der Agent arbeitet auf anonymisierten Beispieldaten mit realistischer Struktur — **keine echten Kundendaten im Repo**. API-Keys gehören in die `.env` (siehe `.env.example`), niemals ins Repo. Ausführliche Setup-Anleitung (INSTALL.md) folgt während der Challenge.
 
 ## Was während der Challenge entstanden ist
 
-[2-3 Stichpunkte: Was gab es vorher schon (siehe dein Check-in-Post), was
-ist neu dazugekommen?]
+- **Vorher:** Vorwissen aus einem laufenden Kundenprojekt zum Thema Lagerbestandsauswertung.
+- **Neu (ab Challenge-Start):** Der Agent selbst, seine komplette Logik und der gesamte n8n-Workflow. Nichts davon existierte vorher.
+- Beispiel-Datensatz (anonymisiert, realistische Struktur) zum Testen der Berechnung.
 
 ## Learnings
 
-[Die 2-3 wichtigsten Dinge, die du beim Bauen gelernt hast — auch Fails!]
+[Folgt während der Challenge — die 2-3 wichtigsten Dinge beim Bauen, auch Fails.]
 
 ---
 
-**Demo-Video:** [Link zu Loom oder YouTube unlisted — EIN Durchlauf, ungeschnitten]
+**Demo-Video:** [Folgt zum Abschluss — Link zu Loom oder YouTube unlisted, EIN Durchlauf, ungeschnitten]
 
-*SKAILE Academy Building Challenge — [Monat/Jahr]*
+*SKAILE Academy Building Challenge — Juli 2026*

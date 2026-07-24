@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nachbestell-Report 2026-07-24</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px 20px 64px; background: #f4f4f7; color: #16161d;
+         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+         font-size: 15px; line-height: 1.55; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  header { background: #0a0a0f; color: #fff; padding: 28px 32px; border-radius: 10px 10px 0 0; }
+  header h1 { margin: 0 0 6px; font-size: 26px; letter-spacing: -0.4px; }
+  header .stichtag { color: #a9a9bd; font-size: 14px; margin: 0; }
+  header .stichtag strong { color: #7c6fff; }
+  .karte { background: #fff; padding: 28px 32px; border-radius: 0 0 10px 10px;
+           box-shadow: 0 1px 3px rgba(0,0,0,.09); margin-bottom: 28px; }
+  .fazit { font-size: 17px; line-height: 1.6; margin: 0 0 24px; padding: 16px 20px;
+           background: #f6f5ff; border-left: 4px solid #7c6fff; border-radius: 4px; }
+  .summen { display: flex; flex-wrap: wrap; gap: 14px; }
+  .summe { flex: 1 1 210px; padding: 16px 18px; border: 1px solid #e3e3ec; border-radius: 8px; }
+  .summe .label { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: #6b6b80; margin-bottom: 6px; }
+  .summe .wert { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
+  .summe.rot .wert { color: #b3261e; }
+  .summe.grau .wert { color: #6b6b80; }
+  section { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.09);
+            margin-bottom: 22px; overflow: hidden; }
+  section > h2 { margin: 0; padding: 16px 24px; font-size: 15px; text-transform: uppercase;
+                 letter-spacing: .9px; border-bottom: 1px solid #ececf3; }
+  section > h2 .zahl { float: right; font-weight: 400; color: #6b6b80; letter-spacing: 0; text-transform: none; }
+  h2.s1 { background: #fdf0ef; color: #b3261e; }
+  h2.s2 { background: #fff8ec; color: #9a5b00; }
+  h2.s3 { background: #eef4fd; color: #1a4f8a; }
+  h2.s4 { background: #f3f3f7; color: #4a4a5c; }
+  h2.s5 { background: #f7f7fa; color: #6b6b80; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; padding: 10px 14px; font-size: 11px; text-transform: uppercase;
+       letter-spacing: .5px; color: #6b6b80; border-bottom: 1px solid #ececf3; white-space: nowrap; }
+  td { padding: 12px 14px; border-bottom: 1px solid #f2f2f7; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  td.n.warn { color: #b3261e; font-weight: 600; }
+  td.n.kap { color: #4a4a5c; font-weight: 600; }
+  td.art { min-width: 190px; }
+  td.art .id { display: block; font-size: 11px; color: #8a8a9e; margin-top: 2px; }
+  td.n .vpe { display: block; font-size: 11px; color: #8a8a9e; font-weight: 400; }
+  td.txt { color: #3a3a48; min-width: 260px; }
+  .leer { padding: 18px 24px; color: #8a8a9e; font-style: italic; margin: 0; }
+  .ok-zeile { padding: 16px 24px; color: #4a4a5c; font-size: 14px; }
+  footer { max-width: 1180px; margin: 0 auto; padding: 20px 4px; color: #6b6b80; font-size: 12.5px; }
+  footer .marke { color: #16161d; font-weight: 600; }
+  .pruef { margin-top: 8px; color: #8a8a9e; }
+  @media print { body { background: #fff; padding: 0; } section, .karte { box-shadow: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Nachbestell-Report</h1>
+  <p class="stichtag">Stichtag <strong>2026-07-24</strong> &nbsp;·&nbsp; 60 Tage Verkaufshistorie &nbsp;·&nbsp; 25 Artikel geprueft</p>
+</header>
+
+<div class="karte">
+  <p class="fazit">Von 25 Artikeln erfordern 5 sofortiges Handeln: Ein Artikel ist kritisch, da der Bestand nicht bis zur nächsten Lieferung reicht, und 4 weitere sollten jetzt bestellt werden. Insgesamt liegen 2439 EUR in zwei Artikeln ohne nennenswerten Absatz gebunden, während bei einem kritischen Artikel ein geschätzter Umsatzverlust von 683,37 EUR droht.</p>
+  <div class="summen">
+    <div class="summe"><div class="label">Bestellvorschlag gesamt</div><div class="wert">10.786,00 €</div></div>
+    <div class="summe grau"><div class="label">Totes Kapital</div><div class="wert">2.439,00 €</div></div>
+    <div class="summe rot"><div class="label">Drohender Umsatzverlust</div><div class="wert">683,37 €</div></div>
+  </div>
+</div>
+
+<section>
+  <h2 class="s1">Sofort handeln<span class="zahl">1 Artikel</span></h2>
+  <table><thead><tr><th>Artikel</th><th>Bestand</th><th>Reichweite</th><th>Lieferzeit</th><th>Fehltage</th><th>Umsatzverlust</th><th>Bestellmenge</th><th>Bestellwert</th><th>Begruendung</th></tr></thead><tbody><tr>
+  <td class="art"><strong>Medjool Datteln Premium 1kg</strong><span class="id">TF-001</span></td>
+  <td class="n">40</td>
+  <td class="n warn">7,5 T</td>
+  <td class="n">14 T</td>
+  <td class="n warn">6,5</td>
+  <td class="n warn">683,37 €</td>
+  <td class="n"><strong>276</strong><span class="vpe">VPE 12</span></td>
+  <td class="n">2.456,40 €</td>
+  <td class="txt">Der Bestand von 40 Stück reicht nur 7,5 Tage, die Lieferzeit beträgt aber 14 Tage, wodurch ein geschätzter Umsatzverlust von 683,37 EUR droht.</td>
+</tr></tbody></table>
+</section>
+
+<section>
+  <h2 class="s2">Jetzt bestellen<span class="zahl">4 Artikel</span></h2>
+  <table><thead><tr><th>Artikel</th><th>Bestand</th><th>Reichweite</th><th>Meldeschwelle</th><th>Bestellmenge</th><th>Bestellwert</th><th>Begruendung</th></tr></thead><tbody><tr>
+  <td class="art"><strong>Sultaninen 1kg</strong><span class="id">TF-004</span></td>
+  <td class="n">75</td>
+  <td class="n">8,4 T</td>
+  <td class="n">12 T</td>
+  <td class="n"><strong>372</strong><span class="vpe">VPE 12</span></td>
+  <td class="n">1.413,60 €</td>
+  <td class="txt">Der Bestand von 75 Stück reicht nur 8,4 Tage und liegt damit unter der Meldeschwelle von 12 Tagen, weshalb eine Bestellung von 372 Stück für 1413,6 EUR empfohlen wird.</td>
+</tr><tr>
+  <td class="art"><strong>Cashewkerne natur 1kg</strong><span class="id">NU-002</span></td>
+  <td class="n">120</td>
+  <td class="n">12,1 T</td>
+  <td class="n">14 T</td>
+  <td class="n"><strong>400</strong><span class="vpe">VPE 10</span></td>
+  <td class="n">4.480,00 €</td>
+  <td class="txt">Der Bestand von 120 Stück reicht nur 12,1 Tage und liegt damit knapp unter der Meldeschwelle von 14 Tagen, weshalb eine Bestellung von 400 Stück für 4480 EUR empfohlen wird.</td>
+</tr><tr>
+  <td class="art"><strong>Erdnussmus crunchy 500g</strong><span class="id">NM-003</span></td>
+  <td class="n">48</td>
+  <td class="n">13,8 T</td>
+  <td class="n">17 T</td>
+  <td class="n"><strong>144</strong><span class="vpe">VPE 12</span></td>
+  <td class="n">518,40 €</td>
+  <td class="txt">Der Bestand von 48 Stück reicht nur 13,8 Tage und liegt damit unter der Meldeschwelle von 17 Tagen, weshalb eine Bestellung von 144 Stück für 518,4 EUR empfohlen wird.</td>
+</tr><tr>
+  <td class="art"><strong>Olivenoel Manaki 500ml</strong><span class="id">FK-011</span></td>
+  <td class="n">90</td>
+  <td class="n">18,2 T</td>
+  <td class="n">21 T</td>
+  <td class="n"><strong>204</strong><span class="vpe">VPE 6</span></td>
+  <td class="n">1.917,60 €</td>
+  <td class="txt">Der Bestand von 90 Stück reicht nur 18,2 Tage und liegt damit knapp unter der Meldeschwelle von 21 Tagen, weshalb eine Bestellung von 204 Stück für 1917,6 EUR empfohlen wird.</td>
+</tr></tbody></table>
+</section>
+
+<section>
+  <h2 class="s3">Beobachten<span class="zahl">3 Artikel</span></h2>
+  <table><thead><tr><th>Artikel</th><th>Bestand</th><th>Reichweite</th><th>Meldeschwelle</th><th>Begruendung</th></tr></thead><tbody><tr>
+  <td class="art"><strong>Mandeln blanchiert 1kg</strong><span class="id">NU-007</span></td>
+  <td class="n">160</td>
+  <td class="n">18,0 T</td>
+  <td class="n">14 T</td>
+  <td class="txt">Der Bestand von 160 Stück reicht 18 Tage und nähert sich der Meldeschwelle von 14 Tagen, weshalb dieser Artikel beobachtet werden sollte.</td>
+</tr><tr>
+  <td class="art"><strong>Feigen getrocknet 500g</strong><span class="id">TF-009</span></td>
+  <td class="n">100</td>
+  <td class="n">20,2 T</td>
+  <td class="n">17 T</td>
+  <td class="txt">Der Bestand von 100 Stück reicht 20,2 Tage und nähert sich der Meldeschwelle von 17 Tagen, weshalb dieser Artikel beobachtet werden sollte.</td>
+</tr><tr>
+  <td class="art"><strong>Tahini Sesammus 500g</strong><span class="id">FK-015</span></td>
+  <td class="n">130</td>
+  <td class="n">23,9 T</td>
+  <td class="n">19 T</td>
+  <td class="txt">Der Bestand von 130 Stück reicht 23,9 Tage und nähert sich der Meldeschwelle von 19 Tagen, weshalb dieser Artikel beobachtet werden sollte.</td>
+</tr></tbody></table>
+</section>
+
+<section>
+  <h2 class="s4">Totes Kapital<span class="zahl">2 Artikel · 2.439,00 € gebunden</span></h2>
+  <table><thead><tr><th>Artikel</th><th>Bestand</th><th>Gebundenes Kapital</th><th>Verkauft gesamt</th><th>Reichweite</th><th>Begruendung</th></tr></thead><tbody><tr>
+  <td class="art"><strong>Macadamia-Mus 350g</strong><span class="id">NM-008</span></td>
+  <td class="n">60</td>
+  <td class="n kap">774,00 €</td>
+  <td class="n">8</td>
+  <td class="n">651,4 T</td>
+  <td class="txt">Der Bestand von 60 Stück reicht 651,4 Tage bei nur 1 verkauftem Stück in den letzten 14 Tagen, weshalb 774 EUR ohne nennenswerten Absatz gebunden sind.</td>
+</tr><tr>
+  <td class="art"><strong>Trueffel-Honig 250g</strong><span class="id">FK-021</span></td>
+  <td class="n">90</td>
+  <td class="n kap">1.665,00 €</td>
+  <td class="n">0</td>
+  <td class="n">kein Absatz</td>
+  <td class="txt">Der Bestand von 90 Stück wurde in den letzten 60 Tagen kein einziges Mal verkauft, weshalb 1665 EUR ohne Absatz gebunden sind.</td>
+</tr></tbody></table>
+</section>
+
+<section>
+  <h2 class="s5">Keine Prognose moeglich<span class="zahl">1 Artikel</span></h2>
+  <table><thead><tr><th>Artikel</th><th>Bestand</th><th>Historie</th><th>Prognose</th><th>Begruendung</th></tr></thead><tbody><tr>
+  <td class="art"><strong>Aprikosen soft 1kg</strong><span class="id">TF-025</span></td>
+  <td class="n">55</td>
+  <td class="n">8 T</td>
+  <td class="n"><em>keine Prognose moeglich</em></td>
+  <td class="txt">Die Verkaufshistorie von 8 Tagen ist zu kurz für eine verlässliche Prognose, weshalb dieser Artikel beobachtet werden sollte.</td>
+</tr></tbody></table>
+  <div class="ok-zeile">Ausserdem ohne Handlungsbedarf: <strong>14 Artikel</strong> mit Status OK.</div>
+</section>
+
+</div>
+<footer>
+  <div><span class="marke">aigency-ai.de</span> &nbsp;|&nbsp; emre@aigency-ai.de &nbsp;|&nbsp; Berlin</div>
+  <div class="pruef">Alle Zahlen stammen aus dem Rechenkern, nicht aus dem Sprachmodell. Faktencheck: 26 von 26 Begruendungen uebernommen, 0 ersetzt.</div>
+</footer>
+</body>
+</html>

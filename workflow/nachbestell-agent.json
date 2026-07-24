@@ -1,0 +1,339 @@
+{
+  "name": "Nachbestell-Agent",
+  "nodes": [
+    {
+      "id": "manual-trigger",
+      "name": "Manuell starten",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -620,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "http-bestand",
+      "name": "Bestand laden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -380,
+        0
+      ],
+      "parameters": {
+        "url": "https://raw.githubusercontent.com/Emre1003/nachbestell-agent/main/data/bestand.csv",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "notes": "Laedt bestand.csv als Datei. Oeffentliches Repo, keine Credentials noetig."
+    },
+    {
+      "id": "parse-bestand",
+      "name": "Bestand parsen",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -140,
+        0
+      ],
+      "parameters": {
+        "operation": "csv",
+        "binaryPropertyName": "data",
+        "options": {
+          "delimiter": ",",
+          "encoding": "utf8",
+          "headerRow": true
+        }
+      }
+    },
+    {
+      "id": "http-verkaeufe",
+      "name": "Verkaeufe laden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        100,
+        0
+      ],
+      "parameters": {
+        "url": "https://raw.githubusercontent.com/Emre1003/nachbestell-agent/main/data/verkaeufe.csv",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "executeOnce": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "notes": "executeOnce=true ist wichtig: ohne das wuerde dieser Node 25x laufen, einmal je Artikel aus 'Bestand parsen'."
+    },
+    {
+      "id": "parse-verkaeufe",
+      "name": "Verkaeufe parsen",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        340,
+        0
+      ],
+      "parameters": {
+        "operation": "csv",
+        "binaryPropertyName": "data",
+        "options": {
+          "delimiter": ",",
+          "encoding": "utf8",
+          "headerRow": true
+        }
+      }
+    },
+    {
+      "id": "code-rechenkern",
+      "name": "Rechenkern",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        580,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// ---------------------------------------------------------------------------\n// RECHENKERN — n8n Code-Node\n//\n// ERZEUGT aus scripts/lib/rechenkern.js durch scripts/build-workflow-export.js.\n// Nicht von Hand bearbeiten — Aenderungen gehoeren in die Repo-Quelle.\n//\n// Dieser Code ist bewusst SELBSTTRAGEND (keine require-Aufrufe im Kern), damit\n// er 1:1 in den n8n Code-Node uebernommen werden kann. Aenderungen hier und im\n// n8n-Node muessen immer gemeinsam passieren.\n//\n// Zwei Eigenschaften, die nicht verhandelbar sind:\n//   1. Hier entsteht JEDE Zahl, die spaeter im Report steht. Das LLM rechnet nichts.\n//   2. Kein Date-Objekt, kein Math.random. Der Stichtag kommt aus den Daten\n//      (spaetestes Verkaufsdatum), nicht aus der Systemuhr. Damit liefert jeder\n//      Durchlauf an jedem Tag identische Zahlen.\n// ---------------------------------------------------------------------------\n\n// --- Stellschrauben: alle an EINER Stelle ---------------------------------\nconst PUFFER_TAGE = 7;\nconst ZIELREICHWEITE_TAGE = 45;\nconst MIN_HISTORIE_TAGE = 14;\nconst TOTES_KAPITAL_REICHWEITE = 180;\nconst TOTES_KAPITAL_MIN_EUR = 100;\nconst GEWICHT_KURZ = 0.7;\n\n// Fenster fuer die kurzfristige Rate. Bewusst identisch mit MIN_HISTORIE_TAGE.\nconst KURZ_FENSTER_TAGE = 14;\n\n// --- Datum als reine Integer-Arithmetik (keine Zeitzone, keine Systemuhr) ---\nfunction isoZuTage(iso) {\n  const t = String(iso).trim().split('-');\n  let y = Number(t[0]);\n  const m = Number(t[1]);\n  const d = Number(t[2]);\n  y -= m <= 2 ? 1 : 0;\n  const era = Math.floor(y / 400);\n  const yoe = y - era * 400;\n  const doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1;\n  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;\n  return era * 146097 + doe - 719468;\n}\n\nconst zahl = (v) => {\n  const n = Number(String(v == null ? '' : v).trim().replace(',', '.'));\n  return Number.isFinite(n) ? n : 0;\n};\nconst runde = (v, n) => {\n  if (v === null || !Number.isFinite(v)) return null;\n  const f = Math.pow(10, n);\n  return Math.round(v * f) / f;\n};\n\n/**\n * @param {Array} artikelRohe   Zeilen aus bestand.csv\n * @param {Array} verkaeufeRohe Zeilen aus verkaeufe.csv\n */\nfunction rechne(artikelRohe, verkaeufeRohe) {\n  // --- Verkaeufe je Artikel buendeln ---------------------------------------\n  const proArtikel = new Map();\n  let stichtagNr = null;\n  let fruehesterNr = null;\n\n  for (const z of verkaeufeRohe) {\n    const id = String(z.artikel_id || '').trim();\n    const datum = String(z.datum || '').trim();\n    if (!id || !datum) continue;\n    const tagNr = isoZuTage(datum);\n    const menge = zahl(z.menge);\n\n    if (stichtagNr === null || tagNr > stichtagNr) stichtagNr = tagNr;\n    if (fruehesterNr === null || tagNr < fruehesterNr) fruehesterNr = tagNr;\n\n    if (!proArtikel.has(id)) proArtikel.set(id, []);\n    proArtikel.get(id).push({ tagNr, menge });\n  }\n\n  if (stichtagNr === null) throw new Error('Keine Verkaufszeilen gefunden — Abbruch statt leerem Report');\n\n  // Stichtag = spaetestes Verkaufsdatum im Datensatz. NICHT der Ausfuehrungstag.\n  const stichtag = verkaeufeRohe\n    .map((z) => String(z.datum || '').trim())\n    .filter(Boolean)\n    .reduce((a, b) => (a > b ? a : b));\n  const datensatzTage = stichtagNr - fruehesterNr + 1;\n  const kurzGrenzeNr = stichtagNr - (KURZ_FENSTER_TAGE - 1);\n\n  const artikel = [];\n\n  for (const a of artikelRohe) {\n    const id = String(a.artikel_id || '').trim();\n    if (!id) continue;\n\n    const bestand = zahl(a.bestand_stueck);\n    const ek = zahl(a.ek_preis_eur);\n    const vk = zahl(a.vk_preis_eur);\n    const vpe = Math.max(1, zahl(a.vpe_stueck));\n    const lieferzeit = zahl(a.lieferzeit_tage);\n\n    const zeilen = proArtikel.get(id) || [];\n\n    // Historie: ab der ersten Verkaufszeile dieses Artikels bis zum Stichtag.\n    // Artikel ganz OHNE Verkaufszeile: wir haben den vollen Zeitraum beobachtet\n    // und dabei null Absatz gesehen — das ist eine Aussage, kein Datenmangel.\n    let historieTage;\n    if (zeilen.length > 0) {\n      const erste = zeilen.reduce((min, z) => (z.tagNr < min ? z.tagNr : min), zeilen[0].tagNr);\n      historieTage = stichtagNr - erste + 1;\n    } else {\n      historieTage = datensatzTage;\n    }\n\n    let summeGesamt = 0;\n    let summeKurz = 0;\n    for (const z of zeilen) {\n      summeGesamt += z.menge;\n      if (z.tagNr >= kurzGrenzeNr) summeKurz += z.menge;\n    }\n\n    const tagesrateKurz = summeKurz / KURZ_FENSTER_TAGE;\n    const tagesrateLang = historieTage > 0 ? summeGesamt / historieTage : 0;\n    const prognoseRate = GEWICHT_KURZ * tagesrateKurz + (1 - GEWICHT_KURZ) * tagesrateLang;\n    const trendFaktor = tagesrateLang > 0 ? tagesrateKurz / tagesrateLang : null;\n\n    // Division durch null wird vermieden, nicht abgefangen: Rate 0 -> keine Reichweite.\n    const reichweite = prognoseRate > 0 ? bestand / prognoseRate : null;\n    const meldeschwelle = lieferzeit + PUFFER_TAGE;\n    const kapital = bestand * ek;\n\n    // --- Status. Reihenfolge ist Teil der Fachlogik. -----------------------\n    // reichweite kann null sein. Jeder Vergleich wird deshalb explizit\n    // gegen null abgesichert — sonst wuerde null < lieferzeit zu 0 < lieferzeit\n    // ausgewertet und ein Ladenhueter faelschlich als KRITISCH gemeldet.\n    const hatReichweite = reichweite !== null;\n    let status;\n    if (historieTage < MIN_HISTORIE_TAGE) {\n      status = 'ZU_WENIG_DATEN';\n    } else if (prognoseRate === 0 && kapital > TOTES_KAPITAL_MIN_EUR) {\n      status = 'TOTES_KAPITAL';\n    } else if (hatReichweite && reichweite < lieferzeit) {\n      status = 'KRITISCH';\n    } else if (hatReichweite && reichweite < meldeschwelle) {\n      status = 'JETZT_BESTELLEN';\n    } else if (hatReichweite && reichweite < meldeschwelle * 1.5) {\n      status = 'BEOBACHTEN';\n    } else if (hatReichweite && reichweite > TOTES_KAPITAL_REICHWEITE && kapital > TOTES_KAPITAL_MIN_EUR) {\n      status = 'TOTES_KAPITAL';\n    } else {\n      status = 'OK';\n    }\n\n    // --- ZU_WENIG_DATEN: Prognosewerte werden aktiv verworfen ---------------\n    // Rechnerisch liesse sich aus 8 Tagen eine Reichweite bilden. Fachlich waere\n    // das eine Scheingenauigkeit. Die Felder werden deshalb geleert, damit im\n    // Report gar keine Prognose fuer diesen Artikel stehen KANN.\n    let prognoseRateAus = prognoseRate;\n    let reichweiteAus = reichweite;\n    let trendFaktorAus = trendFaktor;\n    if (status === 'ZU_WENIG_DATEN') {\n      prognoseRateAus = null;\n      reichweiteAus = null;\n      trendFaktorAus = null;\n    }\n\n    // --- Bestellvorschlag ---------------------------------------------------\n    let bestellmenge = null;\n    let bestellwert = null;\n    let bestellmengeRoh = null;\n    if (status === 'KRITISCH' || status === 'JETZT_BESTELLEN') {\n      bestellmengeRoh = (ZIELREICHWEITE_TAGE + lieferzeit) * prognoseRate - bestand;\n      const vpeAnzahl = Math.max(1, Math.ceil(bestellmengeRoh / vpe));\n      bestellmenge = vpeAnzahl * vpe;\n      bestellwert = bestellmenge * ek;\n    }\n\n    // --- Nur KRITISCH: was der Engpass kostet ------------------------------\n    let fehltage = null;\n    let umsatzverlust = null;\n    if (status === 'KRITISCH') {\n      fehltage = lieferzeit - reichweite;\n      umsatzverlust = fehltage * prognoseRate * vk;\n    }\n\n    artikel.push({\n      artikel_id: id,\n      artikelname: String(a.artikelname || '').trim(),\n      kategorie: String(a.kategorie || '').trim(),\n      status,\n      bestand_stueck: bestand,\n      ek_preis_eur: runde(ek, 2),\n      vk_preis_eur: runde(vk, 2),\n      vpe_stueck: vpe,\n      lieferzeit_tage: lieferzeit,\n      historie_tage: historieTage,\n      verkauft_gesamt: summeGesamt,\n      verkauft_letzte_14_tage: summeKurz,\n      tagesrate_kurz: runde(tagesrateKurz, 3),\n      tagesrate_lang: runde(tagesrateLang, 3),\n      prognose_rate: runde(prognoseRateAus, 3),\n      trend_faktor: runde(trendFaktorAus, 2),\n      reichweite_tage: runde(reichweiteAus, 1),\n      meldeschwelle_tage: meldeschwelle,\n      gebundenes_kapital_eur: runde(kapital, 2),\n      bestellmenge_roh: runde(bestellmengeRoh, 1),\n      bestellmenge_stueck: bestellmenge,\n      bestellwert_eur: runde(bestellwert, 2),\n      fehltage: runde(fehltage, 1),\n      umsatzverlust_schaetzung_eur: runde(umsatzverlust, 2),\n    });\n  }\n\n  // --- Zusammenfassung ------------------------------------------------------\n  const ALLE_STATUS = ['KRITISCH', 'JETZT_BESTELLEN', 'BEOBACHTEN', 'TOTES_KAPITAL', 'ZU_WENIG_DATEN', 'OK'];\n  const anzahl = {};\n  for (const s of ALLE_STATUS) anzahl[s] = 0;\n  let summeBestellwert = 0;\n  let summeTotesKapital = 0;\n  let summeUmsatzverlust = 0;\n\n  for (const a of artikel) {\n    anzahl[a.status] = (anzahl[a.status] || 0) + 1;\n    if (a.bestellwert_eur) summeBestellwert += a.bestellwert_eur;\n    if (a.status === 'TOTES_KAPITAL') summeTotesKapital += a.gebundenes_kapital_eur;\n    if (a.umsatzverlust_schaetzung_eur) summeUmsatzverlust += a.umsatzverlust_schaetzung_eur;\n  }\n\n  // Sortierung: dringendste Entscheidung zuerst, innerhalb gleicher Dringlichkeit\n  // die knappste Reichweite. Artikel ohne Reichweite ans Ende ihrer Gruppe.\n  const RANG = { KRITISCH: 0, JETZT_BESTELLEN: 1, BEOBACHTEN: 2, TOTES_KAPITAL: 3, ZU_WENIG_DATEN: 4, OK: 5 };\n  artikel.sort((x, y) => {\n    if (RANG[x.status] !== RANG[y.status]) return RANG[x.status] - RANG[y.status];\n    const rx = x.reichweite_tage === null ? Infinity : x.reichweite_tage;\n    const ry = y.reichweite_tage === null ? Infinity : y.reichweite_tage;\n    if (rx !== ry) return rx - ry;\n    return x.artikel_id < y.artikel_id ? -1 : 1;\n  });\n\n  return {\n    stichtag,\n    datensatz_tage: datensatzTage,\n    parameter: {\n      PUFFER_TAGE,\n      ZIELREICHWEITE_TAGE,\n      MIN_HISTORIE_TAGE,\n      TOTES_KAPITAL_REICHWEITE,\n      TOTES_KAPITAL_MIN_EUR,\n      GEWICHT_KURZ,\n    },\n    zusammenfassung: {\n      artikel_gesamt: artikel.length,\n      anzahl_je_status: anzahl,\n      summe_bestellwert_eur: runde(summeBestellwert, 2),\n      summe_totes_kapital_eur: runde(summeTotesKapital, 2),\n      summe_umsatzverlust_schaetzung_eur: runde(summeUmsatzverlust, 2),\n    },\n    artikel,\n  };\n}\n\n// --- n8n-Anbindung ---------------------------------------------------------\nconst bestandRohe = $('Bestand parsen').all().map((i) => i.json);\nconst verkaeufeRohe = $input.all().map((i) => i.json);\n\nif (!bestandRohe.length) throw new Error('bestand.csv lieferte keine Zeilen — Abbruch statt leerem Report');\nif (!verkaeufeRohe.length) throw new Error('verkaeufe.csv lieferte keine Zeilen — Abbruch statt leerem Report');\n\nreturn [{ json: rechne(bestandRohe, verkaeufeRohe) }];\n"
+      },
+      "notes": "Hier entsteht JEDE Zahl des Reports. Kein LLM beteiligt. Deterministisch: Stichtag = spaetestes Verkaufsdatum, nicht der Ausfuehrungstag."
+    },
+    {
+      "id": "llm-begruendung",
+      "name": "Begruendung",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        820,
+        0
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "=Stichtag: {{ $json.stichtag }}\nArtikel gesamt: {{ $json.zusammenfassung.artikel_gesamt }}\nSumme Bestellwert: {{ $json.zusammenfassung.summe_bestellwert_eur }} EUR\nSumme totes Kapital: {{ $json.zusammenfassung.summe_totes_kapital_eur }} EUR\nGeschaetzter Umsatzverlust: {{ $json.zusammenfassung.summe_umsatzverlust_schaetzung_eur }} EUR\nAnzahl je Status: {{ JSON.stringify($json.zusammenfassung.anzahl_je_status) }}\n\nKennzahlen je Artikel (JSON):\n{{ JSON.stringify($json.artikel.map(a => ({ id: a.artikel_id, name: a.artikelname, status: a.status, bestand_stueck: a.bestand_stueck, reichweite_tage: a.reichweite_tage, lieferzeit_tage: a.lieferzeit_tage, meldeschwelle_tage: a.meldeschwelle_tage, prognose_rate: a.prognose_rate, trend_faktor: a.trend_faktor, verkauft_letzte_14_tage: a.verkauft_letzte_14_tage, verkauft_gesamt: a.verkauft_gesamt, historie_tage: a.historie_tage, bestellmenge_stueck: a.bestellmenge_stueck, bestellwert_eur: a.bestellwert_eur, gebundenes_kapital_eur: a.gebundenes_kapital_eur, umsatzverlust_schaetzung_eur: a.umsatzverlust_schaetzung_eur }))) }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "Du bist ein nuechterner Einkaufsassistent fuer einen Onlineshop.\n\nDu bekommst FERTIG BERECHNETE Kennzahlen zu Artikeln. Formuliere pro Artikel GENAU EINEN Satz, der erklaert, warum diese Entscheidung getroffen wurde — in einfacher Sprache fuer einen Shopbetreiber ohne Technikhintergrund. Schreibe zusaetzlich eine Zusammenfassung von maximal drei Saetzen fuer den Kopf des Reports.\n\nHARTE REGELN:\n- Du rechnest nichts. Du erfindest keine Zahl.\n- Du darfst ausschliesslich Zahlen verwenden, die im uebergebenen Datensatz dieses Artikels stehen. Keine Prozentwerte, keine Differenzen, keine Hochrechnungen, keine selbst gebildeten Summen.\n- Runde NICHT selbst und schneide nichts ab. Uebernimm jede Zahl exakt so, wie sie im Datensatz steht: aus 13.8 wird \"13,8\" und niemals \"13\".\n- Keine Empfehlungen, die ueber die Statuslogik hinausgehen.\n- Bei Status ZU_WENIG_DATEN nennst du KEINE Prognose und KEINE Reichweite.\n- Im Zweifel schreibe den Satz ohne Zahl.\n\nBedeutung der Status:\nKRITISCH = Bestand reicht nicht bis zur naechsten Lieferung\nJETZT_BESTELLEN = Reichweite unter der Meldeschwelle\nBEOBACHTEN = naehert sich der Meldeschwelle\nTOTES_KAPITAL = Kapital liegt im Regal ohne Absatz\nZU_WENIG_DATEN = zu kurze Verkaufshistorie fuer eine Prognose\nOK = kein Handlungsbedarf\n\nAntworte AUSSCHLIESSLICH mit einem JSON-Objekt, ohne Markdown, ohne Codeblock:\n{\"zusammenfassung\":\"...\",\"begruendungen\":{\"ARTIKEL-ID\":\"ein Satz\"}}\n\nFuer JEDEN uebergebenen Artikel muss ein Eintrag in begruendungen stehen."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "notes": "Formuliert nur Text. Rechnet nichts. Jede Zahl im Output wird danach im Node 'Faktencheck' gegen die echten Werte geprueft."
+    },
+    {
+      "id": "model-begruendung",
+      "name": "Claude - Begruendung",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.5,
+      "position": [
+        820,
+        220
+      ],
+      "parameters": {},
+      "notes": "Anthropic-Credential nach dem Import in n8n zuweisen. Modell auf Node-Default gelassen — im Dropdown auswaehlbar."
+    },
+    {
+      "id": "code-faktencheck",
+      "name": "Faktencheck",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// ---------------------------------------------------------------------------\n// FAKTENCHECK — deterministisch, ohne LLM.\n//\n// Prueft jede Zahl im generierten Text gegen die echten Werte dieses Artikels.\n// Findet er eine Zahl, die dort nicht vorkommt, wird der ganze Satz durch eine\n// fest formulierte Begruendung aus den echten Werten ersetzt.\n//\n// Dadurch kann der Agent technisch keine Zahl halluzinieren: entweder die Zahl\n// stammt aus dem Rechenkern, oder der Satz fliegt raus.\n// ---------------------------------------------------------------------------\n\nconst quelle = $('Rechenkern').first().json;\nconst roh = $input.first().json;\n\n// --- LLM-Text einsammeln (Feldname je nach chainLlm-Version verschieden) ---\nlet text = '';\nif (typeof roh.text === 'string') text = roh.text;\nelse if (roh.response && typeof roh.response.text === 'string') text = roh.response.text;\nelse if (typeof roh.output === 'string') text = roh.output;\nelse if (typeof roh.data === 'string') text = roh.data;\n\nfunction jsonAusText(t) {\n  if (!t) return null;\n  let s = String(t).trim();\n  s = s.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const a = s.indexOf('{');\n  const b = s.lastIndexOf('}');\n  if (a === -1 || b === -1 || b <= a) return null;\n  try { return JSON.parse(s.slice(a, b + 1)); } catch (e) { return null; }\n}\n\nconst llm = jsonAusText(text) || {};\n\n// Das Modell schreibt den Schluessel mal \"begruendungen\", mal \"begründungen\".\n// Deshalb wird nicht auf exakte Namen geprueft, sondern auf den normalisierten Anfang.\n// Ohne diese Toleranz fallen ALLE Saetze auf den Fallback zurueck, obwohl das Modell\n// sauber geantwortet hat — real beobachtet in Lauf 1652.\nfunction normKey(k) {\n  return String(k).toLowerCase()\n    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')\n    .replace(/[^a-z]/g, '');\n}\n\nlet llmBegruendungen = {};\nlet llmZusammenfassung = '';\nfor (const [k, v] of Object.entries(llm || {})) {\n  const n = normKey(k);\n  if (n.startsWith('begruend') && v && typeof v === 'object') llmBegruendungen = v;\n  if (n.startsWith('zusammenfass') && typeof v === 'string') llmZusammenfassung = v;\n}\n\n// --- Zahlen aus einem Text ziehen, deutsches und englisches Format ---------\nfunction zahlenAus(t) {\n  const treffer = String(t || '').match(/\\d[\\d.,]*/g) || [];\n  const out = [];\n  for (const roher of treffer) {\n    let s = roher.replace(/[.,]+$/, '');\n    if (s.includes(',')) {\n      s = s.replace(/\\./g, '').replace(',', '.');        // 2.456,40 -> 2456.40\n    } else if (/^\\d{1,3}(\\.\\d{3})+$/.test(s)) {\n      s = s.replace(/\\./g, '');                          // 2.456 -> 2456\n    }\n    const n = Number(s);\n    if (Number.isFinite(n)) out.push(n);\n  }\n  return out;\n}\n\n// --- Welche Zahlen sind fuer diesen Artikel erlaubt? -----------------------\nfunction erlaubteZahlen(a) {\n  const werte = [];\n  for (const v of Object.values(a)) if (typeof v === 'number' && Number.isFinite(v)) werte.push(v);\n  // Nur Parameter, die als Kontext in einem Satz Sinn ergeben.\n  // PUFFER_TAGE (7) und TOTES_KAPITAL_MIN_EUR (100) bleiben bewusst DRAUSSEN: das sind so\n  // gewoehnliche Zahlen, dass sie sonst falsch gerundete Reichweiten durchwinken wuerden\n  // (z.B. \"reicht 7 Tage\" bei tatsaechlich 7,5 Tagen).\n  for (const k of ['MIN_HISTORIE_TAGE', 'ZIELREICHWEITE_TAGE', 'TOTES_KAPITAL_REICHWEITE']) {\n    const v = (quelle.parameter || {})[k];\n    if (typeof v === 'number') werte.push(v);\n  }\n  // Zahlen aus dem Artikelnamen, z.B. \"500g\" oder \"1kg\"\n  for (const n of (String(a.artikelname || '').match(/\\d+/g) || [])) werte.push(Number(n));\n  const menge = new Set();\n  for (const w of werte) {\n    menge.add(w);\n    menge.add(Math.round(w));\n    menge.add(Math.round(w * 10) / 10);\n    menge.add(Math.round(w * 100) / 100);\n  }\n  return [...menge];\n}\n\nfunction istGedeckt(n, erlaubt) {\n  for (const w of erlaubt) if (Math.abs(w - n) <= 0.05) return true;\n  return false;\n}\n\n// --- Fallback-Saetze, rein aus echten Werten gebaut ------------------------\nconst z1 = (v) => (v === null || v === undefined ? '—' : String(v).replace('.', ','));\n\nfunction fallbackSatz(a) {\n  const name = a.artikelname;\n  switch (a.status) {\n    case 'KRITISCH':\n      return `${name}: Der Bestand von ${a.bestand_stueck} Stueck reicht noch ${z1(a.reichweite_tage)} Tage, die Lieferzeit betraegt aber ${a.lieferzeit_tage} Tage — der Artikel ist leer, bevor neue Ware ankommt.`;\n    case 'JETZT_BESTELLEN':\n      return `${name}: Die Reichweite liegt bei ${z1(a.reichweite_tage)} Tagen und damit unter der Meldeschwelle von ${a.meldeschwelle_tage} Tagen — jetzt ${a.bestellmenge_stueck} Stueck bestellen.`;\n    case 'BEOBACHTEN':\n      return `${name}: Mit ${z1(a.reichweite_tage)} Tagen Reichweite ist noch genug da, der Artikel naehert sich aber der Meldeschwelle von ${a.meldeschwelle_tage} Tagen.`;\n    case 'TOTES_KAPITAL':\n      return `${name}: Hier liegen ${z1(a.gebundenes_kapital_eur)} EUR im Lager, bei nur ${a.verkauft_gesamt} verkauften Stueck in ${a.historie_tage} Tagen.`;\n    case 'ZU_WENIG_DATEN':\n      return `${name}: Erst ${a.historie_tage} Tage Verkaufshistorie — zu wenig fuer eine belastbare Prognose.`;\n    default:\n      return `${name}: Die Reichweite von ${z1(a.reichweite_tage)} Tagen liegt klar ueber der Meldeschwelle von ${a.meldeschwelle_tage} Tagen — kein Handlungsbedarf.`;\n  }\n}\n\n// --- Pruefen und ggf. ersetzen ---------------------------------------------\nlet ersetzt = 0;\nlet uebernommen = 0;\nlet fehlend = 0;\nconst beanstandet = [];\n\nconst artikel = quelle.artikel.map((a) => {\n  const satzLlm = typeof llmBegruendungen[a.artikel_id] === 'string' ? llmBegruendungen[a.artikel_id].trim() : '';\n  let satz;\n  let herkunft;\n\n  if (!satzLlm) {\n    satz = fallbackSatz(a);\n    herkunft = 'fallback_fehlend';\n    fehlend++;\n  } else {\n    const erlaubt = erlaubteZahlen(a);\n    const ungedeckt = zahlenAus(satzLlm).filter((n) => !istGedeckt(n, erlaubt));\n\n    // Zusatzpruefung fuer DIE Entscheidungszahl: wird eine Reichweite genannt, muss sie\n    // zur echten Reichweite dieses Artikels passen. Ohne diese Regel rutscht eine falsch\n    // gerundete Reichweite durch, nur weil dieselbe Zahl zufaellig in einem anderen Feld\n    // des Artikels vorkommt (z.B. \"7 Tage\" bei Reichweite 7,5 und Fehltagen 6,5).\n    let reichweiteFalsch = false;\n    const mReich = satzLlm.match(/(?:reichweite|reicht)[^.\\d]{0,24}(\\d[\\d.,]*)/i);\n    if (mReich && a.reichweite_tage !== null) {\n      const genannt = zahlenAus(mReich[1])[0];\n      const okR = [a.reichweite_tage, Math.round(a.reichweite_tage), Math.round(a.reichweite_tage * 10) / 10];\n      if (genannt !== undefined && !okR.some((w) => Math.abs(w - genannt) <= 0.05)) reichweiteFalsch = true;\n    }\n    // Zusaetzliche Regel: bei ZU_WENIG_DATEN darf ueberhaupt keine Prognose auftauchen.\n    // Verboten ist eine BEHAUPTETE Prognose, nicht das Wort an sich:\n    // \"keine Prognose moeglich\" muss durchgehen, \"Reichweite von 12 Tagen\" nicht.\n    const prognoseVerboten = a.status === 'ZU_WENIG_DATEN' && /(reichweite|prognose|reicht|haelt)[^.]{0,25}\\d/i.test(satzLlm);\n    if (ungedeckt.length > 0 || prognoseVerboten || reichweiteFalsch) {\n      satz = fallbackSatz(a);\n      herkunft = ungedeckt.length > 0\n        ? 'fallback_zahl_nicht_belegt'\n        : (reichweiteFalsch ? 'fallback_reichweite_falsch' : 'fallback_prognose_verboten');\n      ersetzt++;\n      beanstandet.push({ artikel_id: a.artikel_id, grund: herkunft, ungedeckte_zahlen: ungedeckt, genannte_reichweite: reichweiteFalsch ? zahlenAus(mReich[1])[0] : null, echte_reichweite: a.reichweite_tage, original: satzLlm });\n    } else {\n      satz = satzLlm;\n      herkunft = 'llm';\n      uebernommen++;\n    }\n  }\n\n  return { ...a, begruendung: satz, begruendung_herkunft: herkunft };\n});\n\n// --- Zusammenfassung im Kopf ebenfalls pruefen -----------------------------\nconst zGlobal = [];\nfor (const v of Object.values(quelle.zusammenfassung)) if (typeof v === 'number') zGlobal.push(v);\nfor (const v of Object.values(quelle.zusammenfassung.anzahl_je_status || {})) zGlobal.push(v);\nfor (const v of Object.values(quelle.parameter || {})) if (typeof v === 'number') zGlobal.push(v);\nfor (const a of quelle.artikel) for (const v of Object.values(a)) if (typeof v === 'number' && Number.isFinite(v)) zGlobal.push(v);\nconst zErlaubt = [...new Set(zGlobal.flatMap((w) => [w, Math.round(w), Math.round(w * 10) / 10, Math.round(w * 100) / 100]))];\n\nconst zs = quelle.zusammenfassung;\nconst fallbackKopf = `Stichtag ${quelle.stichtag}: ${zs.anzahl_je_status.KRITISCH} Artikel muessen sofort bestellt werden, ${zs.anzahl_je_status.JETZT_BESTELLEN} weitere stehen zur Bestellung an. Der Bestellvorschlag umfasst ${zs.summe_bestellwert_eur} EUR. In Ladenhuetern stecken ${zs.summe_totes_kapital_eur} EUR.`;\n\nlet zusammenfassung;\nlet zusammenfassungHerkunft;\nif (!llmZusammenfassung) {\n  zusammenfassung = fallbackKopf;\n  zusammenfassungHerkunft = 'fallback_fehlend';\n  ersetzt++;\n} else {\n  const ungedeckt = zahlenAus(llmZusammenfassung).filter((n) => !istGedeckt(n, zErlaubt));\n  if (ungedeckt.length > 0) {\n    zusammenfassung = fallbackKopf;\n    zusammenfassungHerkunft = 'fallback_zahl_nicht_belegt';\n    ersetzt++;\n    beanstandet.push({ artikel_id: '(Zusammenfassung)', grund: 'fallback_zahl_nicht_belegt', ungedeckte_zahlen: ungedeckt, original: llmZusammenfassung });\n  } else {\n    zusammenfassung = llmZusammenfassung;\n    zusammenfassungHerkunft = 'llm';\n    uebernommen++; // die Zusammenfassung zaehlt zu 'geprueft', also auch hier mitzaehlen\n  }\n}\n\nreturn [{\n  json: {\n    ...quelle,\n    artikel,\n    zusammenfassung_text: zusammenfassung,\n    zusammenfassung_herkunft: zusammenfassungHerkunft,\n    faktencheck: {\n      geprueft: quelle.artikel.length + 1,\n      uebernommen,\n      ersetzt,\n      ohne_llm_antwort: fehlend,\n      llm_antwort_geparst: Object.keys(llmBegruendungen).length > 0,\n      beanstandet,\n    },\n  },\n}];\n"
+      },
+      "notes": "Deterministische Halluzinationssperre. Jede Zahl im LLM-Satz muss in den Werten dieses Artikels vorkommen, sonst wird der Satz ersetzt."
+    },
+    {
+      "id": "code-html",
+      "name": "HTML-Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// ---------------------------------------------------------------------------\n// HTML-Report. Reine Darstellung — hier wird NICHTS gerechnet.\n// Alle Zahlen kommen unveraendert aus dem Rechenkern.\n// Keine externen Fonts, kein CDN, alles inline.\n// ---------------------------------------------------------------------------\n\nconst d = $input.first().json;\n\nconst esc = (s) => String(s === null || s === undefined ? '' : s)\n  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\n\n// Deutsche Zahlenformatierung. Formatierung, keine Berechnung.\nfunction nf(v, nk) {\n  if (v === null || v === undefined || !Number.isFinite(Number(v))) return '—';\n  const s = Number(v).toFixed(nk);\n  const [g, k] = s.split('.');\n  const gp = g.replace(/\\B(?=(\\d{3})+(?!\\d))/g, '.');\n  return k ? `${gp},${k}` : gp;\n}\nconst eur = (v) => (v === null || v === undefined ? '—' : nf(v, 2) + ' €');\nconst tage = (v) => (v === null || v === undefined ? '—' : nf(v, 1) + ' T');\n\nconst von = (s) => d.artikel.filter((a) => a.status === s);\nconst kritisch = von('KRITISCH');\nconst bestellen = von('JETZT_BESTELLEN');\nconst beobachten = von('BEOBACHTEN');\nconst totes = von('TOTES_KAPITAL');\nconst wenig = von('ZU_WENIG_DATEN');\nconst ok = von('OK');\n\nfunction tabelle(kopf, zeilen) {\n  if (!zeilen.length) return '<p class=\"leer\">Kein Artikel in dieser Kategorie.</p>';\n  return `<table><thead><tr>${kopf.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${zeilen.join('')}</tbody></table>`;\n}\n\nconst zeileKritisch = kritisch.map((a) => `<tr>\n  <td class=\"art\"><strong>${esc(a.artikelname)}</strong><span class=\"id\">${esc(a.artikel_id)}</span></td>\n  <td class=\"n\">${nf(a.bestand_stueck, 0)}</td>\n  <td class=\"n warn\">${tage(a.reichweite_tage)}</td>\n  <td class=\"n\">${nf(a.lieferzeit_tage, 0)} T</td>\n  <td class=\"n warn\">${nf(a.fehltage, 1)}</td>\n  <td class=\"n warn\">${eur(a.umsatzverlust_schaetzung_eur)}</td>\n  <td class=\"n\"><strong>${nf(a.bestellmenge_stueck, 0)}</strong><span class=\"vpe\">VPE ${nf(a.vpe_stueck, 0)}</span></td>\n  <td class=\"n\">${eur(a.bestellwert_eur)}</td>\n  <td class=\"txt\">${esc(a.begruendung)}</td>\n</tr>`).join('');\n\nconst zeileBestellen = bestellen.map((a) => `<tr>\n  <td class=\"art\"><strong>${esc(a.artikelname)}</strong><span class=\"id\">${esc(a.artikel_id)}</span></td>\n  <td class=\"n\">${nf(a.bestand_stueck, 0)}</td>\n  <td class=\"n\">${tage(a.reichweite_tage)}</td>\n  <td class=\"n\">${nf(a.meldeschwelle_tage, 0)} T</td>\n  <td class=\"n\"><strong>${nf(a.bestellmenge_stueck, 0)}</strong><span class=\"vpe\">VPE ${nf(a.vpe_stueck, 0)}</span></td>\n  <td class=\"n\">${eur(a.bestellwert_eur)}</td>\n  <td class=\"txt\">${esc(a.begruendung)}</td>\n</tr>`).join('');\n\nconst zeileBeobachten = beobachten.map((a) => `<tr>\n  <td class=\"art\"><strong>${esc(a.artikelname)}</strong><span class=\"id\">${esc(a.artikel_id)}</span></td>\n  <td class=\"n\">${nf(a.bestand_stueck, 0)}</td>\n  <td class=\"n\">${tage(a.reichweite_tage)}</td>\n  <td class=\"n\">${nf(a.meldeschwelle_tage, 0)} T</td>\n  <td class=\"txt\">${esc(a.begruendung)}</td>\n</tr>`).join('');\n\nconst zeileTotes = totes.map((a) => `<tr>\n  <td class=\"art\"><strong>${esc(a.artikelname)}</strong><span class=\"id\">${esc(a.artikel_id)}</span></td>\n  <td class=\"n\">${nf(a.bestand_stueck, 0)}</td>\n  <td class=\"n kap\">${eur(a.gebundenes_kapital_eur)}</td>\n  <td class=\"n\">${nf(a.verkauft_gesamt, 0)}</td>\n  <td class=\"n\">${a.reichweite_tage === null ? 'kein Absatz' : tage(a.reichweite_tage)}</td>\n  <td class=\"txt\">${esc(a.begruendung)}</td>\n</tr>`).join('');\n\nconst zeileWenig = wenig.map((a) => `<tr>\n  <td class=\"art\"><strong>${esc(a.artikelname)}</strong><span class=\"id\">${esc(a.artikel_id)}</span></td>\n  <td class=\"n\">${nf(a.bestand_stueck, 0)}</td>\n  <td class=\"n\">${nf(a.historie_tage, 0)} T</td>\n  <td class=\"n\"><em>keine Prognose moeglich</em></td>\n  <td class=\"txt\">${esc(a.begruendung)}</td>\n</tr>`).join('');\n\nconst fc = d.faktencheck || {};\n\nconst html = `<!DOCTYPE html>\n<html lang=\"de\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Nachbestell-Report ${esc(d.stichtag)}</title>\n<style>\n  * { box-sizing: border-box; }\n  body { margin: 0; padding: 32px 20px 64px; background: #f4f4f7; color: #16161d;\n         font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif;\n         font-size: 15px; line-height: 1.55; }\n  .wrap { max-width: 1180px; margin: 0 auto; }\n  header { background: #0a0a0f; color: #fff; padding: 28px 32px; border-radius: 10px 10px 0 0; }\n  header h1 { margin: 0 0 6px; font-size: 26px; letter-spacing: -0.4px; }\n  header .stichtag { color: #a9a9bd; font-size: 14px; margin: 0; }\n  header .stichtag strong { color: #7c6fff; }\n  .karte { background: #fff; padding: 28px 32px; border-radius: 0 0 10px 10px;\n           box-shadow: 0 1px 3px rgba(0,0,0,.09); margin-bottom: 28px; }\n  .fazit { font-size: 17px; line-height: 1.6; margin: 0 0 24px; padding: 16px 20px;\n           background: #f6f5ff; border-left: 4px solid #7c6fff; border-radius: 4px; }\n  .summen { display: flex; flex-wrap: wrap; gap: 14px; }\n  .summe { flex: 1 1 210px; padding: 16px 18px; border: 1px solid #e3e3ec; border-radius: 8px; }\n  .summe .label { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: #6b6b80; margin-bottom: 6px; }\n  .summe .wert { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }\n  .summe.rot .wert { color: #b3261e; }\n  .summe.grau .wert { color: #6b6b80; }\n  section { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.09);\n            margin-bottom: 22px; overflow: hidden; }\n  section > h2 { margin: 0; padding: 16px 24px; font-size: 15px; text-transform: uppercase;\n                 letter-spacing: .9px; border-bottom: 1px solid #ececf3; }\n  section > h2 .zahl { float: right; font-weight: 400; color: #6b6b80; letter-spacing: 0; text-transform: none; }\n  h2.s1 { background: #fdf0ef; color: #b3261e; }\n  h2.s2 { background: #fff8ec; color: #9a5b00; }\n  h2.s3 { background: #eef4fd; color: #1a4f8a; }\n  h2.s4 { background: #f3f3f7; color: #4a4a5c; }\n  h2.s5 { background: #f7f7fa; color: #6b6b80; }\n  table { width: 100%; border-collapse: collapse; font-size: 14px; }\n  th { text-align: left; padding: 10px 14px; font-size: 11px; text-transform: uppercase;\n       letter-spacing: .5px; color: #6b6b80; border-bottom: 1px solid #ececf3; white-space: nowrap; }\n  td { padding: 12px 14px; border-bottom: 1px solid #f2f2f7; vertical-align: top; }\n  tr:last-child td { border-bottom: none; }\n  td.n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }\n  td.n.warn { color: #b3261e; font-weight: 600; }\n  td.n.kap { color: #4a4a5c; font-weight: 600; }\n  td.art { min-width: 190px; }\n  td.art .id { display: block; font-size: 11px; color: #8a8a9e; margin-top: 2px; }\n  td.n .vpe { display: block; font-size: 11px; color: #8a8a9e; font-weight: 400; }\n  td.txt { color: #3a3a48; min-width: 260px; }\n  .leer { padding: 18px 24px; color: #8a8a9e; font-style: italic; margin: 0; }\n  .ok-zeile { padding: 16px 24px; color: #4a4a5c; font-size: 14px; }\n  footer { max-width: 1180px; margin: 0 auto; padding: 20px 4px; color: #6b6b80; font-size: 12.5px; }\n  footer .marke { color: #16161d; font-weight: 600; }\n  .pruef { margin-top: 8px; color: #8a8a9e; }\n  @media print { body { background: #fff; padding: 0; } section, .karte { box-shadow: none; } }\n</style>\n</head>\n<body>\n<div class=\"wrap\">\n\n<header>\n  <h1>Nachbestell-Report</h1>\n  <p class=\"stichtag\">Stichtag <strong>${esc(d.stichtag)}</strong> &nbsp;·&nbsp; ${nf(d.datensatz_tage, 0)} Tage Verkaufshistorie &nbsp;·&nbsp; ${nf(d.zusammenfassung.artikel_gesamt, 0)} Artikel geprueft</p>\n</header>\n\n<div class=\"karte\">\n  <p class=\"fazit\">${esc(d.zusammenfassung_text)}</p>\n  <div class=\"summen\">\n    <div class=\"summe\"><div class=\"label\">Bestellvorschlag gesamt</div><div class=\"wert\">${eur(d.zusammenfassung.summe_bestellwert_eur)}</div></div>\n    <div class=\"summe grau\"><div class=\"label\">Totes Kapital</div><div class=\"wert\">${eur(d.zusammenfassung.summe_totes_kapital_eur)}</div></div>\n    <div class=\"summe rot\"><div class=\"label\">Drohender Umsatzverlust</div><div class=\"wert\">${eur(d.zusammenfassung.summe_umsatzverlust_schaetzung_eur)}</div></div>\n  </div>\n</div>\n\n<section>\n  <h2 class=\"s1\">Sofort handeln<span class=\"zahl\">${kritisch.length} Artikel</span></h2>\n  ${tabelle(['Artikel', 'Bestand', 'Reichweite', 'Lieferzeit', 'Fehltage', 'Umsatzverlust', 'Bestellmenge', 'Bestellwert', 'Begruendung'], [zeileKritisch])}\n</section>\n\n<section>\n  <h2 class=\"s2\">Jetzt bestellen<span class=\"zahl\">${bestellen.length} Artikel</span></h2>\n  ${tabelle(['Artikel', 'Bestand', 'Reichweite', 'Meldeschwelle', 'Bestellmenge', 'Bestellwert', 'Begruendung'], [zeileBestellen])}\n</section>\n\n<section>\n  <h2 class=\"s3\">Beobachten<span class=\"zahl\">${beobachten.length} Artikel</span></h2>\n  ${tabelle(['Artikel', 'Bestand', 'Reichweite', 'Meldeschwelle', 'Begruendung'], [zeileBeobachten])}\n</section>\n\n<section>\n  <h2 class=\"s4\">Totes Kapital<span class=\"zahl\">${totes.length} Artikel · ${eur(d.zusammenfassung.summe_totes_kapital_eur)} gebunden</span></h2>\n  ${tabelle(['Artikel', 'Bestand', 'Gebundenes Kapital', 'Verkauft gesamt', 'Reichweite', 'Begruendung'], [zeileTotes])}\n</section>\n\n<section>\n  <h2 class=\"s5\">Keine Prognose moeglich<span class=\"zahl\">${wenig.length} Artikel</span></h2>\n  ${tabelle(['Artikel', 'Bestand', 'Historie', 'Prognose', 'Begruendung'], [zeileWenig])}\n  <div class=\"ok-zeile\">Ausserdem ohne Handlungsbedarf: <strong>${ok.length} Artikel</strong> mit Status OK.</div>\n</section>\n\n</div>\n<footer>\n  <div><span class=\"marke\">aigency-ai.de</span> &nbsp;|&nbsp; emre@aigency-ai.de &nbsp;|&nbsp; Berlin</div>\n  <div class=\"pruef\">Alle Zahlen stammen aus dem Rechenkern, nicht aus dem Sprachmodell. Faktencheck: ${nf(fc.uebernommen, 0)} von ${nf(fc.geprueft, 0)} Begruendungen uebernommen, ${nf(fc.ersetzt, 0)} ersetzt.</div>\n</footer>\n</body>\n</html>`;\n\nreturn [{ json: { html, dateiname: `nachbestell-report-${d.stichtag}.html`, stichtag: d.stichtag, faktencheck: d.faktencheck, zusammenfassung: d.zusammenfassung } }];\n"
+      },
+      "notes": "Reine Darstellung. Rechnet nichts, formatiert nur."
+    },
+    {
+      "id": "convert-file",
+      "name": "Report als Datei",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "html",
+        "binaryPropertyName": "data",
+        "options": {
+          "fileName": "=nachbestell-report-{{ $json.stichtag }}.html",
+          "mimeType": "text/html"
+        }
+      },
+      "notes": "Macht den Report in n8n herunterladbar und im Browser oeffenbar."
+    },
+    {
+      "id": "code-pruefsumme",
+      "name": "Pruefsumme",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        200
+      ],
+      "parameters": {
+        "jsCode": "// ---------------------------------------------------------------------------\n// Kompakte Pruefsumme ueber ALLE berechneten Zahlen des Laufs.\n//\n// Zweck: Zwei Laeufe lassen sich in einer Zeile vergleichen, ohne 25 Artikel\n// durchzusehen. Bleibt der Fingerabdruck gleich, sind die Zahlen identisch.\n// Der LLM-Text geht bewusst NICHT ein — der darf sich unterscheiden, die\n// Entscheidungen duerfen es nicht.\n// ---------------------------------------------------------------------------\n\nconst d = $('Faktencheck').first().json;\n\n// FNV-1a, damit keine externe Abhaengigkeit noetig ist.\nfunction fnv1a(s) {\n  let h = 0x811c9dc5;\n  for (let i = 0; i < s.length; i++) {\n    h ^= s.charCodeAt(i);\n    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;\n  }\n  return h.toString(16).padStart(8, '0');\n}\n\nconst ZAHLENFELDER = [\n  'bestand_stueck', 'prognose_rate', 'reichweite_tage', 'meldeschwelle_tage',\n  'bestellmenge_stueck', 'bestellwert_eur', 'gebundenes_kapital_eur',\n  'fehltage', 'umsatzverlust_schaetzung_eur', 'trend_faktor', 'historie_tage',\n];\n\nconst zeilen = d.artikel.map((a) => `${a.artikel_id}|${a.status}|` + ZAHLENFELDER.map((f) => a[f]).join('|'));\nconst fingerabdruck = fnv1a(zeilen.join('\\n'));\n\nconst herkunft = {};\nfor (const a of d.artikel) herkunft[a.begruendung_herkunft] = (herkunft[a.begruendung_herkunft] || 0) + 1;\n\nreturn [{\n  json: {\n    stichtag: d.stichtag,\n    zahlen_fingerabdruck: fingerabdruck,\n    artikel_gesamt: d.zusammenfassung.artikel_gesamt,\n    anzahl_je_status: d.zusammenfassung.anzahl_je_status,\n    summe_bestellwert_eur: d.zusammenfassung.summe_bestellwert_eur,\n    summe_totes_kapital_eur: d.zusammenfassung.summe_totes_kapital_eur,\n    summe_umsatzverlust_schaetzung_eur: d.zusammenfassung.summe_umsatzverlust_schaetzung_eur,\n    faktencheck: {\n      geprueft: d.faktencheck.geprueft,\n      uebernommen: d.faktencheck.uebernommen,\n      ersetzt: d.faktencheck.ersetzt,\n      ohne_llm_antwort: d.faktencheck.ohne_llm_antwort,\n      llm_antwort_geparst: d.faktencheck.llm_antwort_geparst,\n    },\n    begruendung_herkunft: herkunft,\n    beanstandet_ids: d.faktencheck.beanstandet.map((b) => `${b.artikel_id}:${b.grund}`),\n  },\n}];\n"
+      },
+      "notes": "Vergleichbarkeit zwischen Laeufen. Der Fingerabdruck deckt nur berechnete Zahlen ab, nicht den LLM-Text."
+    }
+  ],
+  "connections": {
+    "Manuell starten": {
+      "main": [
+        [
+          {
+            "node": "Bestand laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestand laden": {
+      "main": [
+        [
+          {
+            "node": "Bestand parsen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestand parsen": {
+      "main": [
+        [
+          {
+            "node": "Verkaeufe laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verkaeufe laden": {
+      "main": [
+        [
+          {
+            "node": "Verkaeufe parsen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verkaeufe parsen": {
+      "main": [
+        [
+          {
+            "node": "Rechenkern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rechenkern": {
+      "main": [
+        [
+          {
+            "node": "Begruendung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude - Begruendung": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Begruendung",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Begruendung": {
+      "main": [
+        [
+          {
+            "node": "Faktencheck",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Faktencheck": {
+      "main": [
+        [
+          {
+            "node": "HTML-Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTML-Report": {
+      "main": [
+        [
+          {
+            "node": "Report als Datei",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Pruefsumme",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  }
+}

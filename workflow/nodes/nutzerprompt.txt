@@ -1,0 +1,9 @@
+=Stichtag: {{ $json.stichtag }}
+Artikel gesamt: {{ $json.zusammenfassung.artikel_gesamt }}
+Summe Bestellwert: {{ $json.zusammenfassung.summe_bestellwert_eur }} EUR
+Summe totes Kapital: {{ $json.zusammenfassung.summe_totes_kapital_eur }} EUR
+Geschaetzter Umsatzverlust: {{ $json.zusammenfassung.summe_umsatzverlust_schaetzung_eur }} EUR
+Anzahl je Status: {{ JSON.stringify($json.zusammenfassung.anzahl_je_status) }}
+
+Kennzahlen je Artikel (JSON):
+{{ JSON.stringify($json.artikel.map(a => ({ id: a.artikel_id, name: a.artikelname, status: a.status, bestand_stueck: a.bestand_stueck, reichweite_tage: a.reichweite_tage, lieferzeit_tage: a.lieferzeit_tage, meldeschwelle_tage: a.meldeschwelle_tage, prognose_rate: a.prognose_rate, trend_faktor: a.trend_faktor, verkauft_letzte_14_tage: a.verkauft_letzte_14_tage, verkauft_gesamt: a.verkauft_gesamt, historie_tage: a.historie_tage, bestellmenge_stueck: a.bestellmenge_stueck, bestellwert_eur: a.bestellwert_eur, gebundenes_kapital_eur: a.gebundenes_kapital_eur, umsatzverlust_schaetzung_eur: a.umsatzverlust_schaetzung_eur }))) }}
